@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+moviepy
+openai-whisper
+google-generativeai
+pydantic
+python-dotenv
+yt-dlp
+imageio-ffmpeg
+# Auth + DB
+python-jose[cryptography]
+passlib[bcrypt]
+sqlalchemy
