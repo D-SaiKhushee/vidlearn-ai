@@ -11,7 +11,7 @@ const STEPS = [
 ];
 
 export default function Home({ onResult }) {
-  const [mode, setMode]             = useState('youtube');
+  const [mode, setMode]             = useState('file');
   const [url, setUrl]               = useState('');
   const [file, setFile]             = useState(null);
   const [drag, setDrag]             = useState(false);
