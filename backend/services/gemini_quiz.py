@@ -10,12 +10,12 @@ MODEL = "gemini-2.5-flash-lite"
 MAX_CHUNK_CHARS = 48000
 
 
-def _parse(text: str) -> dict:
+def _parse(text):
     t = text.strip().replace("```json","").replace("```","").strip()
     return json.loads(t)
 
 
-def generate_quiz(transcript: str) -> dict:
+def generate_quiz(transcript):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise Exception("GEMINI_API_KEY not set")
@@ -29,7 +29,7 @@ def generate_quiz(transcript: str) -> dict:
     else:
         content = chunks[0]
 
-    prompt = f"""Generate a quiz. Return ONLY valid JSON, no markdown:
+    prompt = f'''Generate a quiz. Return ONLY valid JSON, no markdown:
 {{
   "mcq": [
     {{"question":"...","options":["A...","B...","C...","D..."],"answer":"A...","explanation":"..."}}
@@ -41,6 +41,6 @@ def generate_quiz(transcript: str) -> dict:
 5 MCQs with explanations. 3 short answer questions with model answers.
 
 Content:
-{content}"""
+''' + content
 
     return _parse(m.generate_content(prompt).text)
