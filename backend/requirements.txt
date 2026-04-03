@@ -13,3 +13,4 @@ imageio-ffmpeg
 python-jose[cryptography]
 passlib[bcrypt]
 sqlalchemy
+google-genai

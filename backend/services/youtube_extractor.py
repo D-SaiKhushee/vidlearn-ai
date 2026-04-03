@@ -1,47 +1,22 @@
-import yt_dlp
-import imageio_ffmpeg
 import os
-import subprocess
+from google import genai
+from google.genai import types
 
-def download_youtube_audio(url: str, output_path: str):
+def get_youtube_transcript(url: str) -> str:
     try:
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        output_path = os.path.normpath(output_path)
-        stem = output_path.replace('.mp3', '')
-        audio_dir = os.path.dirname(output_path)
-
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': stem + '.%(ext)s',
-            'quiet': True,
-            'no_warnings': True,
-            'cookiefile': os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cookies.txt'),
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-
-        all_files = os.listdir(audio_dir)
-        stem_basename = os.path.basename(stem)
-        candidates = [
-            os.path.join(audio_dir, f)
-            for f in all_files
-            if f.startswith(stem_basename) and not f.endswith('.mp3')
-        ]
-
-        if not candidates:
-            raise Exception(f"yt-dlp did not produce any audio file.")
-        actual_raw = candidates[0]
-
-        convert_cmd = [
-            ffmpeg_exe, '-y', '-i', actual_raw,
-            '-ar', '16000', '-ac', '1', '-b:a', '128k', output_path
-        ]
-        result = subprocess.run(convert_cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise Exception(f"ffmpeg conversion failed: {result.stderr}")
-
-        if os.path.exists(actual_raw):
-            os.remove(actual_raw)
-
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-lite',
+            contents=types.Content(
+                parts=[
+                    types.Part(text='Transcribe this YouTube video into plain text. Return only the transcript, no commentary.'),
+                    types.Part(file_data=types.FileData(
+                        mime_type='video/youtube',
+                        file_uri=url
+                    ))
+                ]
+            )
+        )
+        return response.text
     except Exception as e:
-        raise Exception(f"Failed to extract YouTube audio: {str(e)}")
+        raise Exception(f"Failed to get YouTube transcript: {str(e)}")

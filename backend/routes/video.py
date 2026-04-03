@@ -23,7 +23,7 @@ from services.gemini_notes import (
     generate_flashcards, generate_key_concepts, generate_mindmap
 )
 from services.gemini_quiz import generate_quiz
-from services.youtube_extractor import download_youtube_audio
+from services.youtube_extractor import get_youtube_transcript
 from db.database import User
 
 router = APIRouter()
@@ -36,14 +36,12 @@ os.makedirs(VIDEO_DIR, exist_ok=True)
 
 
 def _cache_key(youtube_url: Optional[str], filename: Optional[str]) -> str:
-    """Stable cache key: SHA256 of the YouTube URL or the original filename."""
     raw = youtube_url.strip().lower() if youtube_url else (filename or "unknown")
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def _make_session_title(youtube_url: Optional[str], filename: Optional[str]) -> str:
     if youtube_url:
-        # Use the video ID or a truncated URL as the title seed
         return youtube_url.split("v=")[-1][:60] if "v=" in youtube_url else youtube_url[:60]
     return (filename or "Uploaded video")[:60]
 
@@ -58,13 +56,11 @@ def process_video(
     if not youtube_url and not file:
         raise HTTPException(status_code=400, detail="Must provide either a file or a YouTube URL")
 
-    # ── Cache check ────────────────────────────────────────────────────────────
-    source_key  = _cache_key(youtube_url, file.filename if file else None)
+    source_key   = _cache_key(youtube_url, file.filename if file else None)
     source_label = youtube_url or (file.filename if file else "")
     cached = db.query(VideoCache).filter(VideoCache.source_key == source_key).first()
 
     if cached:
-        # Result already exists — skip ALL AI calls, just create a session link
         session = VideoSession(
             id=str(uuid.uuid4()),
             user_id=current_user.id,
@@ -76,25 +72,25 @@ def process_video(
         db.commit()
         return _session_response(session, cached, from_cache=True)
 
-    # ── Not cached — process the video ────────────────────────────────────────
     video_path = None
-    audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4().hex}.mp3")
+    audio_path = None
 
     try:
         if youtube_url:
-            download_youtube_audio(youtube_url, audio_path)
+            # Use transcript API directly — no audio download needed
+            transcript = get_youtube_transcript(youtube_url)
         else:
+            audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4().hex}.mp3")
             video_path = os.path.join(VIDEO_DIR, file.filename)
             with open(video_path, "wb") as buf:
                 shutil.copyfileobj(file.file, buf)
             extract_audio(video_path, audio_path)
+            transcript = transcribe_audio(audio_path)
 
-        transcript = transcribe_audio(audio_path)
-        words       = transcript.split()
-        word_count  = len(words)
-        read_time   = max(1, word_count // 200)
+        words      = transcript.split()
+        word_count = len(words)
+        read_time  = max(1, word_count // 200)
 
-        # Generate everything
         notes        = generate_notes(transcript)
         summary      = generate_summary(transcript)
         quiz_data    = generate_quiz(transcript)
@@ -102,13 +98,6 @@ def process_video(
         key_concepts = generate_key_concepts(transcript)
         mindmap      = generate_mindmap(transcript)
 
-        # Cleanup audio/video files
-        if video_path and os.path.exists(video_path):
-            os.remove(video_path)
-        if os.path.exists(audio_path):
-            os.remove(audio_path)
-
-        # Save to cache
         cache = VideoCache(
             id=str(uuid.uuid4()),
             source_key=source_key,
@@ -125,7 +114,6 @@ def process_video(
         )
         db.add(cache)
 
-        # Create user session
         session = VideoSession(
             id=str(uuid.uuid4()),
             user_id=current_user.id,
@@ -141,11 +129,12 @@ def process_video(
         return _session_response(session, cache, from_cache=False)
 
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
         if video_path and os.path.exists(video_path):
             os.remove(video_path)
-        if os.path.exists(audio_path):
+        if audio_path and os.path.exists(audio_path):
             os.remove(audio_path)
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 def _session_response(session: VideoSession, cache: VideoCache, from_cache: bool = False) -> dict:
