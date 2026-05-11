@@ -1,30 +1,29 @@
 import os
 import json
-import google.generativeai as genai
-from dotenv import load_dotenv
+from groq import Groq
 from services.chunking import chunk_text
 
-load_dotenv()
-
-MODEL = "gemini-2.5-flash-lite"
+MODEL = "llama-3.3-70b-versatile"
 MAX_CHUNK_CHARS = 48000
 
 
 def _parse(text):
-    t = text.strip().replace("```json","").replace("```","").strip()
-    return json.loads(t)
+    return json.loads(text.strip().replace("```json","").replace("```","").strip())
 
 
 def generate_quiz(transcript):
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        raise Exception("GEMINI_API_KEY not set")
-    genai.configure(api_key=api_key)
-    m = genai.GenerativeModel(MODEL)
+        raise Exception("GROQ_API_KEY not set")
+    client = Groq(api_key=api_key)
 
     chunks = chunk_text(transcript, MAX_CHUNK_CHARS)
     if len(chunks) > 1:
-        summaries = [m.generate_content(f"Key facts from section {i+1}:\n{c}").text for i, c in enumerate(chunks)]
+        summaries = [client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": f"Key facts from section {i+1}:\n{c}"}],
+            temperature=0.3,
+        ).choices[0].message.content for i, c in enumerate(chunks)]
         content = "\n\n".join(summaries)
     else:
         content = chunks[0]
@@ -43,4 +42,8 @@ def generate_quiz(transcript):
 Content:
 ''' + content
 
-    return _parse(m.generate_content(prompt).text)
+    return _parse(client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3,
+    ).choices[0].message.content)
